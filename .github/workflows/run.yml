@@ -1,22 +1,28 @@
 name: 刷步数
-# 10.22修改
+# 10.22 修复定时任务失效：重新注册 schedule
+# 说明：workflow 文件在默认分支发生实质变更时，GitHub 会重新解析并注册 cron。
+#       本次仅调整 cron 的书写方式（等价的时间点）+ 增加 concurrency，逻辑未变。
 on:
   schedule:
     #- cron: '16 0,2,4,6,8 * * *'
-    - cron: '05 23 * * *'  # 07:05
-    - cron: '42 0 * * *'   # 08:42
-    - cron: '18 2 * * *'   # 10:18
-    - cron: '56 3 * * *'   # 11:56
-    - cron: '31 5 * * *'   # 13:31
-    - cron: '07 7 * * *'   # 15:07
-    - cron: '44 8 * * *'   # 16:44
-    - cron: '21 10 * * *'  # 18:21
-    - cron: '58 11 * * *'  # 19:58
-    - cron: '35 13 * * *'  # 21:35
+    - cron: "05 23 * * *"  # 07:05
+    - cron: "42 0 * * *"   # 08:42
+    - cron: "18 2 * * *"   # 10:18
+    - cron: "56 3 * * *"   # 11:56
+    - cron: "31 5 * * *"   # 13:31
+    - cron: "07 7 * * *"   # 15:07
+    - cron: "44 8 * * *"   # 16:44
+    - cron: "21 10 * * *"  # 18:21
+    - cron: "58 11 * * *"  # 19:58
+    - cron: "35 13 * * *"  # 21:35
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: mimotion-run
+  cancel-in-progress: false
 
 jobs:
   build:
