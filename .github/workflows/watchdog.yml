@@ -44,33 +44,47 @@ jobs:
               print("⚠️  没有任何运行记录，请检查 workflow 是否存在。")
               sys.exit(0)
 
+          # 关键：不区分触发方式。无论是 GitHub 的 schedule，
+          # 还是外部定时器（cron-job.org 等）调 API 触发的 workflow_dispatch，
+          # 都算「任务在正常运转」。
           sched = [r for r in runs if r["event"] == "schedule"]
-          manual = [r for r in runs if r["event"] == "workflow_dispatch"]
-          print(f"总记录 {len(runs)} 条 | schedule {len(sched)} 条 | manual {len(manual)} 条")
+          ext = [r for r in runs if r["event"] == "workflow_dispatch"]
+          print(f"总记录 {len(runs)} 条 | schedule {len(sched)} 条 | "
+                f"外部/手动触发 {len(ext)} 条")
 
-          if not sched:
-              print("\n🔴 警告：最近 50 条记录里没有任何定时运行！")
-              print("   说明 schedule 已经失效，请按修复说明处理。")
+          ok_runs = [r for r in runs if r.get("conclusion") == "success"]
+          if not ok_runs:
+              print("\n🔴 警告：最近 50 条记录里没有任何成功运行！")
+              print("   请检查工作流是否正常。")
               sys.exit(0)
 
-          last = datetime.strptime(sched[0]["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+          last = datetime.strptime(ok_runs[0]["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
           now = datetime.now(timezone.utc)
           gap_h = (now - last).total_seconds() / 3600
-          print(f"\n最后一次定时运行：{last.strftime('%Y-%m-%d %H:%M')} UTC")
+          print(f"\n最后一次成功运行：{last.strftime('%Y-%m-%d %H:%M')} UTC "
+                f"（触发方式：{ok_runs[0]['event']}）")
           print(f"距今：{gap_h:.1f} 小时")
 
-          print("\n最近 5 次定时运行：")
-          for r in sched[:5]:
+          print("\n最近 5 次成功运行：")
+          for r in ok_runs[:5]:
               t = r["created_at"].replace("T", " ").replace("Z", "")
-              print(f"  #{r['run_number']:<5} {t} UTC  {r.get('conclusion')}")
+              print(f"  #{r['run_number']:<5} {t} UTC  {r['event']:<18} {r.get('conclusion')}")
+
+          # 判断 schedule 是否还活着，仅作提示
+          if sched:
+              last_s = datetime.strptime(sched[0]["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+              gap_s = (now - last_s).total_seconds() / 3600
+              print(f"\nGitHub schedule 最近一次触发：{last_s.strftime('%Y-%m-%d %H:%M')} UTC（{gap_s:.1f} 小时前）")
+              if gap_s > 24:
+                  print("   ⚠️  schedule 已超过 24 小时未触发，建议依赖外部定时器。")
 
           # 配置是每天 10 次，正常间隔不超过约 4 小时
           if gap_h > 14:
-              print(f"\n🔴 警告：已超过 {gap_h:.1f} 小时没有定时运行（阈值 14 小时）。")
-              print("   schedule 很可能已失效，请执行修复。")
+              print(f"\n🔴 警告：已超过 {gap_h:.1f} 小时没有任何成功运行（阈值 14 小时）。")
+              print("   说明定时触发已经停摆，请启用外部定时器（见 external-trigger.md）。")
               sys.exit(0)
           elif gap_h > 6:
-              print(f"\n🟡 注意：{gap_h:.1f} 小时没有定时运行，略长但仍在容忍范围。")
+              print(f"\n🟡 注意：{gap_h:.1f} 小时没有成功运行，略长但仍在容忍范围。")
           else:
-              print("\n🟢 正常：定时任务在正常触发。")
+              print("\n🟢 正常：任务在正常触发。")
           PY
