@@ -1,0 +1,76 @@
+name: schedule watchdog
+
+# ============================================================
+# 用途：检测「刷步数」的定时任务是否还在正常运行。
+# 背景：本仓库是 fork 仓库，fork 的 schedule 会被 GitHub 静默停掉，
+#       而且不会在 Actions 里留下任何错误记录。
+#       本工作流每 6 小时检查一次，并直接在当前运行日志里打印结论，
+#       不需要额外权限，也不需要额外配置。
+# ============================================================
+
+on:
+  schedule:
+    # 每 6 小时检查一次（UTC 0,6,12,18 点）
+    - cron: "30 1,7,13,19 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检查最近定时运行情况
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/run.yml/runs?per_page=50"
+
+          echo "=== 拉取「刷步数」最近 50 条运行记录 ==="
+          curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+               -H "Accept: application/vnd.github+json" \
+               -H "User-Agent: watchdog/1.0" "$API" -o runs.json
+
+          python3 - << 'PY'
+          import json, sys
+          from datetime import datetime, timezone
+
+          data = json.load(open("runs.json"))
+          runs = data.get("workflow_runs", [])
+          if not runs:
+              print("⚠️  没有任何运行记录，请检查 workflow 是否存在。")
+              sys.exit(0)
+
+          sched = [r for r in runs if r["event"] == "schedule"]
+          manual = [r for r in runs if r["event"] == "workflow_dispatch"]
+          print(f"总记录 {len(runs)} 条 | schedule {len(sched)} 条 | manual {len(manual)} 条")
+
+          if not sched:
+              print("\n🔴 警告：最近 50 条记录里没有任何定时运行！")
+              print("   说明 schedule 已经失效，请按修复说明处理。")
+              sys.exit(0)
+
+          last = datetime.strptime(sched[0]["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+          now = datetime.now(timezone.utc)
+          gap_h = (now - last).total_seconds() / 3600
+          print(f"\n最后一次定时运行：{last.strftime('%Y-%m-%d %H:%M')} UTC")
+          print(f"距今：{gap_h:.1f} 小时")
+
+          print("\n最近 5 次定时运行：")
+          for r in sched[:5]:
+              t = r["created_at"].replace("T", " ").replace("Z", "")
+              print(f"  #{r['run_number']:<5} {t} UTC  {r.get('conclusion')}")
+
+          # 配置是每天 10 次，正常间隔不超过约 4 小时
+          if gap_h > 14:
+              print(f"\n🔴 警告：已超过 {gap_h:.1f} 小时没有定时运行（阈值 14 小时）。")
+              print("   schedule 很可能已失效，请执行修复。")
+              sys.exit(0)
+          elif gap_h > 6:
+              print(f"\n🟡 注意：{gap_h:.1f} 小时没有定时运行，略长但仍在容忍范围。")
+          else:
+              print("\n🟢 正常：定时任务在正常触发。")
+          PY
